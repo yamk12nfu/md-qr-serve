@@ -1,0 +1,87 @@
+{
+  "name": "md-qr-serve",
+  "displayName": "Serve MD with QR",
+  "description": "Serve Markdown files via local HTTP and display QR code for mobile access",
+  "version": "0.0.1",
+  "publisher": "yamk12nfu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yamk12nfu/md-qr-serve"
+  },
+  "keywords": [
+    "markdown",
+    "qr-code",
+    "preview",
+    "mobile",
+    "server"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "icon": "images/icon.png",
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "md-qr-serve.start",
+        "title": "Serve MD with QR: Start Server"
+      },
+      {
+        "command": "md-qr-serve.stop",
+        "title": "Serve MD with QR: Stop Server"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceLangId == markdown",
+          "command": "md-qr-serve.start",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "when": "resourceLangId == markdown",
+          "command": "md-qr-serve.start",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "md-qr-serve.start"
+        },
+        {
+          "command": "md-qr-serve.stop"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.0",
+    "marked": "^9.0.0",
+    "marked-katex-extension": "^5.1.2",
+    "qrcode": "^1.5.4",
+    "sanitize-html": "^2.13.0"
+  },
+  "devDependencies": {
+    "@types/sanitize-html": "^2.13.0",
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "@types/qrcode": "^1.5.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.3.0",
+    "vitest": "^3.0.0"
+  }
+}
