@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import QRCode from 'qrcode';
+import { escapeHtml } from './utils';
 
 let panel: vscode.WebviewPanel | null = null;
 
@@ -103,13 +104,4 @@ function getWebviewHtml(url: string, qrDataUrl: string | null): string {
   </p>
 </body>
 </html>`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
 }

@@ -11,6 +11,7 @@ import sanitizeHtml from "sanitize-html";
 import { extractToken, generateToken, validateToken } from "./auth";
 import { getCdnDomains, getMermaidKatexHeadHtml, getMermaidKatexStyles } from "./mermaidKatex";
 import { getThemeStyles, getThemeToggleHtml } from "./theme";
+import { escapeHtml } from "./utils";
 
 export interface ServerInfo {
   url: string;
@@ -129,15 +130,6 @@ export function getLanIp(): string {
   }
 
   return "127.0.0.1";
-}
-
-export function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 export function buildHtmlDocument(mdFileName: string, renderedHtml: string, token: string): string {

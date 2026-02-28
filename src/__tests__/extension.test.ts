@@ -50,4 +50,15 @@ describe("getActiveMarkdownFilePath", () => {
 
     expect(getActiveMarkdownFilePath()).toBe("/tmp/note.md");
   });
+
+  it("returns filePath for uppercase .MD file with markdown languageId", () => {
+    (vscode.window as any).activeTextEditor = {
+      document: {
+        uri: { fsPath: "/tmp/note.MD" },
+        languageId: "markdown",
+      },
+    };
+
+    expect(getActiveMarkdownFilePath()).toBe("/tmp/note.MD");
+  });
 });

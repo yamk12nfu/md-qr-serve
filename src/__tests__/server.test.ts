@@ -6,8 +6,9 @@ import * as path from "path";
 import { describe, expect, it } from "vitest";
 
 import { getMermaidKatexStyles } from "../mermaidKatex";
-import { buildHtmlDocument, escapeHtml, getLanIp, startServer, stopServer } from "../server";
+import { buildHtmlDocument, getLanIp, startServer, stopServer } from "../server";
 import { getThemeStyles } from "../theme";
+import { escapeHtml } from "../utils";
 
 function requestHeaders(
   baseUrl: string,

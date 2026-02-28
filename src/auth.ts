@@ -6,13 +6,11 @@ export function generateToken(): string {
 }
 
 export function validateToken(provided: string, expected: string): boolean {
-  const normalizedProvided: string | null | undefined = provided as unknown as string | null | undefined;
-
-  if (normalizedProvided == null || normalizedProvided.length === 0) {
+  if (provided.length === 0) {
     return false;
   }
 
-  const providedBuffer: Buffer = Buffer.from(normalizedProvided, "utf8");
+  const providedBuffer: Buffer = Buffer.from(provided, "utf8");
   const expectedBuffer: Buffer = Buffer.from(expected, "utf8");
 
   if (providedBuffer.length !== expectedBuffer.length) {

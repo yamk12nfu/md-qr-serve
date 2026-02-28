@@ -41,7 +41,7 @@
 - `marked` を `gfm: true, breaks: true` で設定し、Markdown を HTML 化。
 - モバイル閲覧を意識したレスポンシブ CSS を HTML テンプレートに内包。
 - ポート競合時は `DEFAULT_PORT`（13579）から最大 10 回リトライ。
-- `fs.watchFile()`（500ms 間隔）で変更検知し、HTML キャッシュを遅延再生成。
+- `chokidar` によるイベント駆動ファイル監視で変更検知し、HTML キャッシュを遅延再生成。
 - `startServer()` の事前レンダリング（`getHtmlDocument()`）失敗時は、`unwatchMarkdownFile()` と `resetContentState()` を実行して状態をクリーンアップしてから再送出する。
 - セキュリティ方針:
   - `path.resolve()` + `.md` 拡張子チェック + `statSync().isFile()` で配信対象を限定。
@@ -63,7 +63,10 @@
 - Node.js 標準モジュール（`http`, `os`, `fs`, `path`）
 
 ### 4.2 ライブラリ
-- `marked ^17.0.0`
+- `marked ^9.0.0`
+- `sanitize-html ^2.13.0`
+- `chokidar ^4.0.0`
+- `marked-katex-extension ^5.1.2`
 - `qrcode ^1.5.4`
 
 ## 5. ファイル構成
@@ -128,11 +131,11 @@ md-qr-serve/
 
 ## 8. 今後の拡張ポイント
 ### 8.1 機能拡張候補
-- WebSocket/SSE による自動リロード。
+- WebSocket/SSE による自動リロード（実装済み（`src/server.ts`））。
 - 複数 Markdown ファイルの同時配信。
-- 表示テーマ切替（ライト/ダーク、タイポグラフィ調整）。
-- Mermaid/数式（KaTeX 等）対応。
-- 配信 URL の認証・アクセス制御オプション。
+- 表示テーマ切替（ライト/ダーク、タイポグラフィ調整）（実装済み（`src/theme.ts`））。
+- Mermaid/数式（KaTeX 等）対応（実装済み（`src/mermaidKatex.ts`））。
+- 配信 URL の認証・アクセス制御オプション（実装済み（`src/auth.ts`）: ワンタイムトークン認証）。
 
 ## 9. テスト可能設計
 ### 9.1 最低限の手動受け入れ確認項目（tests_policy: none 前提）
