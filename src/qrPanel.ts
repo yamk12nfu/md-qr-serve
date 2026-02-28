@@ -29,7 +29,8 @@ async function updateQrPanel(context: vscode.ExtensionContext, url: string): Pro
 
   try {
     qrDataUrl = await QRCode.toDataURL(url, QR_OPTIONS);
-  } catch {
+  } catch (error) {
+    console.error('[md-qr-serve] QR code generation failed:', error);
     void vscode.window.showErrorMessage('QRコードの生成に失敗しました。URLを手動で入力してください。');
   }
 

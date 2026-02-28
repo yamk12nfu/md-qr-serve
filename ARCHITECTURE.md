@@ -77,9 +77,13 @@ md-qr-serve/
 ├── tsconfig.json
 ├── .vscodeignore
 └── src/
+    ├── auth.ts
     ├── extension.ts
+    ├── mermaidKatex.ts
+    ├── qrPanel.ts
     ├── server.ts
-    └── qrPanel.ts
+    ├── theme.ts
+    └── utils.ts
 ```
 
 ### 5.2 補足
@@ -146,8 +150,9 @@ md-qr-serve/
 
 ### 9.2 将来の単体テスト対象（モジュール境界ベース）
 - `server/qrPanel/extension` の境界を維持し、`extension.ts` では VSCode API 依存部を薄く保つ。
-- `server.ts` の pure function: `getLanIp`, `buildHtmlDocument`, `escapeHtml` はモック不要で入出力検証可能。
-- `qrPanel.ts` の pure function: `escapeHtml` はモック不要でエスケープ規則を直接検証可能。
+- `server.ts` の pure function: `getLanIp`, `buildHtmlDocument` はモック不要で入出力検証可能。
+- `utils.ts` の pure function: `escapeHtml` はモック不要でエスケープ規則を直接検証可能。
+- `qrPanel.ts` は `utils.ts` の `escapeHtml` 利用を前提に、URL 埋め込み時のエスケープ適用有無を検証可能。
 - `extension.ts` の `getActiveMarkdownFilePath` は VSCode editor 状態の最小スタブで分岐確認可能。
 
 ## 10. セットアップ・ビルド・デバッグ手順
