@@ -4,3 +4,14 @@ src/**
 tsconfig.json
 **/*.ts
 **/*.map
+.yamibaito/
+.claude/
+dashboard.md
+TODO.md
+ARCHITECTURE.md
+src/__tests__/
+out/__tests__/
+vitest.config.ts
+*.vsix
+.git/
+node_modules/

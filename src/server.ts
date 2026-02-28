@@ -3,27 +3,102 @@ import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 
+import chokidar, { type FSWatcher } from "chokidar";
 import { marked } from "marked";
+import markedKatex from "marked-katex-extension";
+import sanitizeHtml from "sanitize-html";
+
+import { extractToken, generateToken, validateToken } from "./auth";
+import { getCdnDomains, getMermaidKatexHeadHtml, getMermaidKatexStyles } from "./mermaidKatex";
+import { getThemeStyles, getThemeToggleHtml } from "./theme";
 
 export interface ServerInfo {
   url: string;
   port: number;
   lanIp: string;
+  token: string;
 }
 
 const DEFAULT_PORT = 13579;
 const MAX_PORT_ATTEMPTS = 10;
-const WATCH_INTERVAL_MS = 500;
 
 let server: http.Server | null = null;
 let currentMdFilePath: string | null = null;
-let watchedMdFilePath: string | null = null;
+let markdownWatcher: FSWatcher | null = null;
+let sseClients: http.ServerResponse[] = [];
 let cachedHtmlDocument = "";
 let isMarkdownDirty = true;
+let currentServerToken: string | null = null;
 
-marked.use({ gfm: true, breaks: true });
+const KATEX_MATHML_TAGS = [
+  "math",
+  "semantics",
+  "mrow",
+  "mi",
+  "mo",
+  "mn",
+  "mtext",
+  "ms",
+  "mspace",
+  "mstyle",
+  "mpadded",
+  "mphantom",
+  "mfrac",
+  "msqrt",
+  "mroot",
+  "munder",
+  "mover",
+  "munderover",
+  "msub",
+  "msup",
+  "msubsup",
+  "mtable",
+  "mtr",
+  "mtd",
+  "mlabeledtr",
+  "menclose",
+  "mprescripts",
+  "none",
+  "annotation",
+  "annotation-xml",
+];
 
-function getLanIp(): string {
+const KATEX_SPAN_CLASS_PATTERNS = [
+  /^katex(?:-[a-z0-9-]+)?$/,
+  /^m[a-z0-9-]*$/,
+  /^text[a-z0-9-]*$/,
+  /^math[a-z0-9-]*$/,
+  /^base$/,
+  /^strut$/,
+  /^fontsize(?:-[a-z0-9-]+)?$/,
+  /^sizing$/,
+  /^size\d+$/,
+  /^reset-size\d+$/,
+  /^vlist(?:-[a-z0-9-]+)?$/,
+  /^pstrut$/,
+  /^overline(?:-[a-z0-9-]+)?$/,
+  /^underline(?:-[a-z0-9-]+)?$/,
+  /^accent(?:-[a-z0-9-]+)?$/,
+  /^rule$/,
+  /^frac-line$/,
+  /^sqrt$/,
+  /^root$/,
+  /^delim[a-z0-9-]*$/,
+  /^op(?:-[a-z0-9-]+)?$/,
+  /^stretchy$/,
+  /^hide-tail$/,
+  /^nulldelimiter$/,
+  /^llap$/,
+  /^rlap$/,
+  /^clap$/,
+  /^col-align-[lcr]$/,
+];
+
+const KATEX_STYLE_LENGTH_PATTERN = /^(?:0|-?(?:\d+|\d*\.\d+)(?:em|ex|px|pt|rem|%))$/;
+
+marked.use({ gfm: true, breaks: true }, markedKatex({ throwOnError: false }));
+
+export function getLanIp(): string {
   const nets = os.networkInterfaces();
   const preferred = ["en0", "eth0", "wlan0"];
 
@@ -56,7 +131,7 @@ function getLanIp(): string {
   return "127.0.0.1";
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -65,8 +140,9 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function buildHtmlDocument(mdFileName: string, renderedHtml: string): string {
+export function buildHtmlDocument(mdFileName: string, renderedHtml: string, token: string): string {
   const safeTitle = escapeHtml(mdFileName);
+  const encodedToken = encodeURIComponent(token);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -111,10 +187,22 @@ function buildHtmlDocument(mdFileName: string, renderedHtml: string): string {
       h1 { font-size: 1.5em; }
       pre { padding: 12px; font-size: 13px; }
     }
+    ${getMermaidKatexStyles()}
+    ${getThemeStyles()}
   </style>
+  ${getMermaidKatexHeadHtml()}
 </head>
 <body>
+  ${getThemeToggleHtml()}
   ${renderedHtml}
+  <script>
+    (function() {
+      var es = new EventSource('/sse?token=${encodedToken}');
+      es.addEventListener('reload', function() {
+        location.reload();
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -122,6 +210,9 @@ function buildHtmlDocument(mdFileName: string, renderedHtml: string): string {
 function readAndRenderMarkdown(): string {
   if (!currentMdFilePath) {
     throw new Error("Markdown file path is not set.");
+  }
+  if (!currentServerToken) {
+    throw new Error("Server token is not set.");
   }
 
   const markdownText = fs.readFileSync(currentMdFilePath, "utf8");
@@ -131,7 +222,63 @@ function readAndRenderMarkdown(): string {
     throw new Error("Marked returned an async result unexpectedly.");
   }
 
-  return buildHtmlDocument(path.basename(currentMdFilePath), parsed);
+  const sanitizedHtml = sanitizeHtml(parsed, {
+    allowedTags: [
+      ...new Set([...sanitizeHtml.defaults.allowedTags, "img", "h1", "h2", "h3", "span", ...KATEX_MATHML_TAGS]),
+    ],
+    allowedAttributes: {
+      ...sanitizeHtml.defaults.allowedAttributes,
+      img: [
+        ...new Set([
+          ...(sanitizeHtml.defaults.allowedAttributes.img ?? []),
+          "src",
+          "alt",
+          "width",
+          "height",
+        ]),
+      ],
+      code: ["class"],
+      span: [
+        ...new Set([
+          ...(sanitizeHtml.defaults.allowedAttributes.span ?? []),
+          "class",
+          "style",
+          "aria-hidden",
+        ]),
+      ],
+      math: [
+        ...new Set([
+          ...(sanitizeHtml.defaults.allowedAttributes.math ?? []),
+          "xmlns",
+        ]),
+      ],
+      annotation: [
+        ...new Set([
+          ...(sanitizeHtml.defaults.allowedAttributes.annotation ?? []),
+          "encoding",
+        ]),
+      ],
+    },
+    allowedClasses: {
+      span: KATEX_SPAN_CLASS_PATTERNS,
+    },
+    allowedStyles: {
+      span: {
+        width: [KATEX_STYLE_LENGTH_PATTERN],
+        height: [KATEX_STYLE_LENGTH_PATTERN],
+        "min-width": [KATEX_STYLE_LENGTH_PATTERN],
+        "margin-left": [KATEX_STYLE_LENGTH_PATTERN],
+        "margin-right": [KATEX_STYLE_LENGTH_PATTERN],
+        top: [KATEX_STYLE_LENGTH_PATTERN],
+        "padding-left": [KATEX_STYLE_LENGTH_PATTERN],
+        "padding-right": [KATEX_STYLE_LENGTH_PATTERN],
+        "border-bottom-width": [KATEX_STYLE_LENGTH_PATTERN],
+        "vertical-align": [KATEX_STYLE_LENGTH_PATTERN],
+      },
+    },
+  });
+
+  return buildHtmlDocument(path.basename(currentMdFilePath), sanitizedHtml, currentServerToken);
 }
 
 function getHtmlDocument(): string {
@@ -145,29 +292,47 @@ function getHtmlDocument(): string {
 
 function resetContentState(): void {
   currentMdFilePath = null;
+  currentServerToken = null;
   cachedHtmlDocument = "";
   isMarkdownDirty = true;
 }
 
 function unwatchMarkdownFile(): void {
-  if (!watchedMdFilePath) {
+  if (!markdownWatcher) {
     return;
   }
 
-  fs.unwatchFile(watchedMdFilePath);
-  watchedMdFilePath = null;
+  const watcherToClose = markdownWatcher;
+  markdownWatcher = null;
+  void watcherToClose.close();
+}
+
+function notifySseClientsReload(): void {
+  sseClients.forEach((client) => {
+    client.write("event: reload\ndata: changed\n\n");
+  });
+}
+
+function closeSseClients(): void {
+  sseClients.forEach((client) => {
+    client.end();
+  });
+  sseClients = [];
 }
 
 function startMarkdownWatcher(mdFilePath: string): void {
   unwatchMarkdownFile();
-  watchedMdFilePath = mdFilePath;
-
-  fs.watchFile(mdFilePath, { interval: WATCH_INTERVAL_MS }, () => {
+  markdownWatcher = chokidar.watch(mdFilePath);
+  markdownWatcher.on("change", () => {
     isMarkdownDirty = true;
+    notifySseClientsReload();
   });
 }
 
-function createRequestHandler(allowedMdFilePath: string): http.RequestListener {
+function createRequestHandler(allowedMdFilePath: string, serverToken: string): http.RequestListener {
+  const cdnDomains = getCdnDomains();
+  const cspDomains = cdnDomains.join(" ");
+
   return (req, res) => {
     const rawUrl = req.url ?? "/";
     let pathname = "/";
@@ -178,12 +343,13 @@ function createRequestHandler(allowedMdFilePath: string): http.RequestListener {
       pathname = rawUrl;
     }
 
-    if (pathname !== "/") {
-      res.writeHead(404, {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, {
+        Allow: "GET, HEAD",
         "Content-Type": "text/plain; charset=utf-8",
         "X-Content-Type-Options": "nosniff",
       });
-      res.end("Not Found");
+      res.end("Method Not Allowed");
       return;
     }
 
@@ -196,10 +362,59 @@ function createRequestHandler(allowedMdFilePath: string): http.RequestListener {
       return;
     }
 
+    if (pathname === "/" || pathname === "/sse") {
+      const providedToken = extractToken(rawUrl);
+      const reason = !providedToken ? "missing" : validateToken(providedToken, serverToken) ? null : "invalid";
+      if (reason) {
+        console.warn("[md-qr-serve] auth failed:", { path: pathname, reason });
+        res.writeHead(403, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "X-Content-Type-Options": "nosniff",
+        });
+        res.end("Forbidden");
+        return;
+      }
+    }
+
+    if (pathname === "/sse") {
+      if (req.method !== "GET") {
+        res.writeHead(405, {
+          Allow: "GET",
+          "Content-Type": "text/plain; charset=utf-8",
+          "X-Content-Type-Options": "nosniff",
+        });
+        res.end("Method Not Allowed");
+        return;
+      }
+
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Content-Type-Options": "nosniff",
+      });
+      res.write("data: connected\n\n");
+      sseClients.push(res);
+      req.on("close", () => {
+        sseClients = sseClients.filter((client) => client !== res);
+      });
+      return;
+    }
+
+    if (pathname !== "/") {
+      res.writeHead(404, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+      });
+      res.end("Not Found");
+      return;
+    }
+
     try {
       const htmlDocument = getHtmlDocument();
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline' ${cspDomains}; style-src 'self' 'unsafe-inline' ${cspDomains}; font-src ${cspDomains}; img-src 'self' data:;`,
         "X-Content-Type-Options": "nosniff",
       });
 
@@ -209,7 +424,8 @@ function createRequestHandler(allowedMdFilePath: string): http.RequestListener {
       }
 
       res.end(htmlDocument);
-    } catch {
+    } catch (error) {
+      console.error("[md-qr-serve] render error:", error);
       res.writeHead(500, {
         "Content-Type": "text/plain; charset=utf-8",
         "X-Content-Type-Options": "nosniff",
@@ -219,9 +435,9 @@ function createRequestHandler(allowedMdFilePath: string): http.RequestListener {
   };
 }
 
-function listenOnPort(mdFilePath: string, port: number): Promise<http.Server> {
+function listenOnPort(mdFilePath: string, port: number, serverToken: string): Promise<http.Server> {
   return new Promise((resolve, reject) => {
-    const candidateServer = http.createServer(createRequestHandler(mdFilePath));
+    const candidateServer = http.createServer(createRequestHandler(mdFilePath, serverToken));
 
     const onError = (error: NodeJS.ErrnoException): void => {
       cleanup();
@@ -276,12 +492,15 @@ export async function startServer(mdFilePath: string, port = DEFAULT_PORT): Prom
   if (server) {
     const previousServer = server;
     server = null;
+    closeSseClients();
     await closeServerInstance(previousServer);
     unwatchMarkdownFile();
     resetContentState();
   }
 
   currentMdFilePath = resolvedMdFilePath;
+  const serverToken = generateToken();
+  currentServerToken = serverToken;
   cachedHtmlDocument = "";
   isMarkdownDirty = true;
 
@@ -301,14 +520,15 @@ export async function startServer(mdFilePath: string, port = DEFAULT_PORT): Prom
     const candidatePort = port + attempt;
 
     try {
-      const startedServer = await listenOnPort(resolvedMdFilePath, candidatePort);
+      const startedServer = await listenOnPort(resolvedMdFilePath, candidatePort, serverToken);
       server = startedServer;
 
       const lanIp = getLanIp();
       return {
-        url: `http://${lanIp}:${candidatePort}`,
+        url: `http://${lanIp}:${candidatePort}/?token=${serverToken}`,
         port: candidatePort,
         lanIp,
+        token: serverToken,
       };
     } catch (error) {
       const nodeError = error as NodeJS.ErrnoException;
@@ -333,6 +553,7 @@ export async function startServer(mdFilePath: string, port = DEFAULT_PORT): Prom
 
 export function stopServer(): void {
   unwatchMarkdownFile();
+  closeSseClients();
 
   if (server) {
     const activeServer = server;

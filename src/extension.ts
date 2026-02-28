@@ -1,4 +1,3 @@
-import * as path from "path";
 import * as vscode from "vscode";
 
 import { isServerRunning, startServer, stopServer, ServerInfo } from "./server";
@@ -7,7 +6,7 @@ import { disposePanel, showQrPanel } from "./qrPanel";
 const START_COMMAND = "md-qr-serve.start";
 const STOP_COMMAND = "md-qr-serve.stop";
 
-function getActiveMarkdownFilePath(): string | null {
+export function getActiveMarkdownFilePath(): string | null {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     return null;
@@ -18,7 +17,7 @@ function getActiveMarkdownFilePath(): string | null {
     return null;
   }
 
-  if (editor.document.languageId !== "markdown" && path.extname(filePath).toLowerCase() !== ".md") {
+  if (editor.document.languageId !== "markdown") {
     return null;
   }
 
